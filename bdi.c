@@ -10,6 +10,9 @@
 
 #include "bdi.h"
 
+// test files in folder testHex
+const char *filename = "testHex/hex1.txt";
+
 EndianType type = BIG;
 
 static unsigned long long my_llabs(long long x)
@@ -589,7 +592,6 @@ BufferStruct readHexValuesIntoBuffer(const char *filename)
 
 int main()
 {
-    const char *filename = "testHex/hex1.txt";
     BufferStruct bufferStruct = readHexValuesIntoBuffer(filename);
 
     if (bufferStruct.buffer == NULL)
