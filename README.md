@@ -6,6 +6,6 @@ Usage:
   - modify the test file name "hex1.txt" source code based on the test
   - gcc bdi.c -o bdi
   - ./bdi
-3. check memory address range for a trace file:
+2. check memory address range for a trace file:
   - gcc checkTrace.c -o checkTrace
   - ./checkTrace testTraces/xxx.trace
