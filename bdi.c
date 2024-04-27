@@ -2,26 +2,20 @@
  * Original Code: https://github.com/CMU-SAFARI/BDICompression.git
  * 
  * Modified by Penggao Li
- * Last modified: 04/26/2024
+ * Last modified: 04/27/2024
  */
-
-#include <stdlib.h>
-#include <stdio.h>
 
 #include "bdi.h"
 
-// test files in folder testHex
-const char *filename = "testHex/hex1.txt";
-
 EndianType type = BIG;
 
-static unsigned long long my_llabs(long long x)
+unsigned long long my_llabs(long long x)
 {
     unsigned long long t = x >> 63;
     return (x ^ t) - t;
 }
 
-static unsigned my_abs(int x)
+unsigned my_abs(int x)
 {
     unsigned t = x >> 31;
     return (x ^ t) - t;
@@ -66,7 +60,7 @@ unsigned long long readBytesAsInteger(const unsigned char *bytes, unsigned step,
     return value;
 }
 
-unsigned long long *convertBuffer2Array(char *buffer, unsigned size, unsigned step, EndianType endianType)
+unsigned long long *convertBuffer2Array(unsigned char *buffer, unsigned size, unsigned step, EndianType endianType)
 {
     unsigned long long *values = (unsigned long long *)malloc(sizeof(unsigned long long) * (size / step));
     if (!values)
@@ -316,7 +310,7 @@ CompressionResult setCompResult(unsigned isZero, unsigned isSame, unsigned compS
     return result;
 }
 
-CompressionResult BDICompress(char *buffer, unsigned _blockSize)
+CompressionResult BDICompress(unsigned char *buffer, unsigned _blockSize)
 {
     long long unsigned *values = NULL;
     unsigned bestCSize = 0;
@@ -326,7 +320,7 @@ CompressionResult BDICompress(char *buffer, unsigned _blockSize)
     CurrCompResult currResult = {0, _blockSize};
 
     values = convertBuffer2Array(buffer, _blockSize, 8, type);
-    printValuesArr(values, _blockSize, 8);
+    // printValuesArr(values, _blockSize, 8);
     bestCSize = _blockSize;
     currCSize = _blockSize;
     if (isZeroPackable(values, _blockSize / 8))
@@ -370,7 +364,7 @@ CompressionResult BDICompress(char *buffer, unsigned _blockSize)
 
     //===================================================================
     values = convertBuffer2Array(buffer, _blockSize, 4, type);
-    printValuesArr(values, _blockSize, 4);
+    // printValuesArr(values, _blockSize, 4);
     if (isSameValuePackable(values, _blockSize / 4))
     {
         currCSize = 4;
@@ -400,7 +394,7 @@ CompressionResult BDICompress(char *buffer, unsigned _blockSize)
 
     //===================================================================
     values = convertBuffer2Array(buffer, _blockSize, 2, type);
-    printValuesArr(values, _blockSize, 2);
+    // printValuesArr(values, _blockSize, 2);
     if (isSameValuePackable(values, _blockSize / 2))
     {
         result = setCompResult(0, 1, 2, 2, 1);
@@ -426,7 +420,7 @@ CompressionResult BDICompress(char *buffer, unsigned _blockSize)
     return result;
 }
 
-unsigned FPCCompress(char *buffer, unsigned size)
+unsigned FPCCompress(unsigned char *buffer, unsigned size)
 {
     long long unsigned *values = convertBuffer2Array(buffer, size * 4, 4, type);
     unsigned compressable = 0;
@@ -590,8 +584,8 @@ BufferStruct readHexValuesIntoBuffer(const char *filename)
     return result;
 }
 
-int main()
-{
+void generateCompressedData(const char *filename, CompressionResult *compResult){
+
     BufferStruct bufferStruct = readHexValuesIntoBuffer(filename);
 
     if (bufferStruct.buffer == NULL)
@@ -601,34 +595,80 @@ int main()
     }
 
     unsigned bufferSize = bufferStruct.size;
-    unsigned blockSize = 4;
-    char *buffer = bufferStruct.buffer;
+    // unsigned blockSize = 4;
+    unsigned char *buffer = bufferStruct.buffer;
 
     if (!buffer)
     {
         fprintf(stderr, "Failed to allocate memory for buffer\n");
-        return EXIT_FAILURE;
+        exit(EXIT_FAILURE);
     }
 
-    printf("Buffer read with size: %zu bytes\n", bufferStruct.size);
-    printBuffer(bufferStruct.buffer, bufferStruct.size);
+    // printf("Buffer read with size: %zu bytes\n", bufferStruct.size);
+    // printBuffer(bufferStruct.buffer, bufferStruct.size);
 
     // Call the BDICompress function
     // unsigned compressedSize = GeneralCompress(buffer, bufferSize, 3);
-    CompressionResult compResult = BDICompress(buffer, bufferSize);
+    // CompressionResult *compResult = (CompressionResult*)malloc(sizeof(CompressionResult));
+    (*compResult) = BDICompress(buffer, bufferSize);
 
     // Check the result
-    if (compResult.compSize == 0)
+    if ((*compResult).compSize == 0)
     {
         printf("Compression failed or resulted in no size reduction.\n");
     }
     else
     {
-        printf("Original Size: %u, Compressed Size: %u\n", bufferSize, compResult.compSize);
-        printf("isZero: %d, isSame: %d, K: %d, baseNum: %d\n", compResult.isZero, compResult.isSame, compResult.K, compResult.BaseNum);
+        // printf("Original Size: %u, Compressed Size: %u\n", bufferSize, (*compResult).compSize);
+        // printf("isZero: %d, isSame: %d, K: %d, baseNum: %d\n", (*compResult).isZero, (*compResult).isSame, (*compResult).K, (*compResult).BaseNum);
     }
 
     free(bufferStruct.buffer);
 
-    return EXIT_SUCCESS;
+    return;
+
 }
+
+// int main()
+// {
+//     const char *filename = "testHex/hex1.txt";
+//     BufferStruct bufferStruct = readHexValuesIntoBuffer(filename);
+
+//     if (bufferStruct.buffer == NULL)
+//     {
+//         perror("Failed to read buffer from file.");
+//         exit(EXIT_FAILURE);
+//     }
+
+//     unsigned bufferSize = bufferStruct.size;
+//     unsigned blockSize = 4;
+//     char *buffer = bufferStruct.buffer;
+
+//     if (!buffer)
+//     {
+//         fprintf(stderr, "Failed to allocate memory for buffer\n");
+//         return EXIT_FAILURE;
+//     }
+
+//     printf("Buffer read with size: %zu bytes\n", bufferStruct.size);
+//     printBuffer(bufferStruct.buffer, bufferStruct.size);
+
+//     // Call the BDICompress function
+//     // unsigned compressedSize = GeneralCompress(buffer, bufferSize, 3);
+//     CompressionResult compResult = BDICompress(buffer, bufferSize);
+
+//     // Check the result
+//     if (compResult.compSize == 0)
+//     {
+//         printf("Compression failed or resulted in no size reduction.\n");
+//     }
+//     else
+//     {
+//         printf("Original Size: %u, Compressed Size: %u\n", bufferSize, compResult.compSize);
+//         printf("isZero: %d, isSame: %d, K: %d, baseNum: %d\n", compResult.isZero, compResult.isSame, compResult.K, compResult.BaseNum);
+//     }
+
+//     free(bufferStruct.buffer);
+
+//     return EXIT_SUCCESS;
+// }

@@ -2,11 +2,14 @@
  * Original source code: https://github.com/CMU-SAFARI/BDICompression.git
  * 
  * Created by Penggao Li
- * Last modified: 04/26/2024
+ * Last modified: 04/27/2024
  */
 
 #ifndef _BDI_H_
 #define _BDI_H_
+
+#include <stdlib.h>
+#include <stdio.h>
 
 typedef struct {
     unsigned char *buffer;
@@ -38,14 +41,19 @@ typedef struct {
     unsigned BaseNum; 
 }CompressionResult;
 
-static unsigned long long my_llabs(long long x);
+// typedef struct{
+//     CompressionResult result;
+//     char *compressedBuffer;
+// }CompressedData;
 
-static unsigned my_abs(int x);
+unsigned long long my_llabs(long long x);
+
+unsigned my_abs(int x);
 
 unsigned long long readBytesAsInteger(const unsigned char *bytes, unsigned step, EndianType endianType);
 
 // long long unsigned *convertBuffer2Array(char *buffer, unsigned size, unsigned step);
-unsigned long long *convertBuffer2Array(char *buffer, unsigned size, unsigned step, EndianType endianType);
+unsigned long long *convertBuffer2Array(unsigned char *buffer, unsigned size, unsigned step, EndianType endianType);
 
 ///
 /// Check if the cache line consists of only zero values
@@ -71,10 +79,14 @@ unsigned doubleExponentCompression(long long unsigned *values, unsigned size, un
 CurrCompResult multBaseCompression(long long unsigned *values, unsigned size, unsigned blimit, unsigned bsize, unsigned base);
 
 // unsigned BDICompress(char *buffer, unsigned _blockSize);
-CompressionResult BDICompress(char *buffer, unsigned _blockSize);
+CompressionResult BDICompress(unsigned char *buffer, unsigned _blockSize);
 
-unsigned FPCCompress(char *buffer, unsigned size);
+unsigned FPCCompress(unsigned char *buffer, unsigned size);
 
 // unsigned GeneralCompress(char *buffer, unsigned _blockSize, unsigned compress);
+
+BufferStruct readHexValuesIntoBuffer(const char *filename);
+
+void generateCompressedData(const char *filename, CompressionResult *compResult);
 
 #endif

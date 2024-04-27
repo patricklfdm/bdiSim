@@ -1,3 +1,10 @@
+/*
+ * checkTrace.c
+ * 
+ * Created by Penggao Li
+ * Last modified: 04/26/2024
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
