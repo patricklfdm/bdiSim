@@ -10,6 +10,7 @@ Usage:
   - ./cache
   - choose trace file from testTraces folder
   - choose replacement policy (RANDOM, BESTFIT, LRU)
+  - make clean
 2. check memory address range for a trace file:
   - gcc checkTrace.c -o checkTrace
   - ./checkTrace testTraces/xxx.trace
