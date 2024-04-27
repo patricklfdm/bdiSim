@@ -1,14 +1,15 @@
 BDI simulation
 
-Original code: https://github.com/CMU-SAFARI/BDICompression.git
+BDI source code: https://github.com/CMU-SAFARI/BDICompression.git
 
 Trace files from: https://github.com/jiangxincode/CacheSim.git
 
 Usage:
-1. test bdi compression:
-  - modify the test file name "hex1.txt" source code based on the test
-  - gcc bdi.c -o bdi
-  - ./bdi
+1. compressed cache simulation (32KB, 32-byte cacheline, 64-byte set):
+  - make
+  - ./cache
+  - choose trace file from testTraces folder
+  - choose replacement policy (RANDOM, BESTFIT, LRU)
 2. check memory address range for a trace file:
   - gcc checkTrace.c -o checkTrace
   - ./checkTrace testTraces/xxx.trace
