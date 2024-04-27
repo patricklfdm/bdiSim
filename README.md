@@ -5,7 +5,7 @@ BDI source code: https://github.com/CMU-SAFARI/BDICompression.git
 Trace files from: https://github.com/jiangxincode/CacheSim.git
 
 Usage:
-1. compressed cache simulation (32KB, 32-byte cacheline, 64-byte set):
+1. compressed cache simulation (32KB, 32-byte cacheline, 64-byte set, BDI compression):
   - make / make clean
   - ./cache
   - choose trace file from testTraces folder
