@@ -326,7 +326,7 @@ CompressionResult BDICompress(unsigned char *buffer, unsigned _blockSize)
     if (isZeroPackable(values, _blockSize / 8))
     {
         // bestCSize = 1;
-        result = setCompResult(1, 1, 1, 1, 0);
+        result = setCompResult(1, 1, 1, 8, 1);
         free(values);
         return result;
     }

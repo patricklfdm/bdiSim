@@ -87,6 +87,15 @@ typedef struct {
     unsigned int offset;
 } AddressParts;
 
+typedef struct {
+    unsigned long address;
+    int ifHit;
+    int ifEvict;
+    unsigned int roundedCompSize;
+    unsigned long timestamp;
+    CompressionResult compResult;
+}OutputInfo;
+
 extern ReplacementPolicy RP;
 
 /* =====================================================================================
@@ -102,11 +111,11 @@ void initializeCacheSet(CacheSet *set);
 
 void removeLineFromCacheSet(CacheSet *set, addr_32_bit tag);
 
-void removeLineFromCacheSetBySize(CacheSet *set, unsigned int size);
+void removeLineFromCacheSetBySize(CacheSet *set, unsigned int size, OutputInfo *evictInfo);
 
-void removeLineFromCacheSetByTime(CacheSet *set, unsigned long timestamp);
+void removeLineFromCacheSetByTime(CacheSet *set, unsigned long timestamp, OutputInfo *evictInfo);
 
-bool randomEvict(CacheSet *set, CompressedCacheLine *line);
+bool randomEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
 
 void dfs(unsigned int* nums, int size, int goal, int start, int sum, double evictedIndex);
 
@@ -114,15 +123,15 @@ void minDifference(unsigned int* nums, int size, int goal);
 
 void doubleToIntegerArray(double value, int **array, int *size);
 
-bool bestfitEvict(CacheSet *set, CompressedCacheLine *line);
+bool bestfitEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
 
 void bubbleSort(unsigned long arr[], int n);
 
-bool LRUEvict(CacheSet *set, CompressedCacheLine *line);
+bool LRUEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
 
 int addLineToCacheSet(CacheSet *set, CompressedCacheLine *line);
 
-bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line);
+bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
 
 void initializeCache(Cache *cache);
 
@@ -134,19 +143,23 @@ void initializeCacheLine(CompressedCacheLine *line, addr_32_bit tag, Compression
 
 void printCacheLineInfo(CompressedCacheLine *line);
 
-bool ifHit(Cache *cache, addr_32_bit addr);
+bool ifHit(Cache *cache, addr_32_bit addr, OutputInfo *info);
 
 void cachingByAddrAndMemContent(Cache *cache, const char *filename, addr_32_bit addr);
 
 int generateRandom(int range);
 
-void cachingByAddrAndRandomMemContent(Cache *cache, CompressionResult *compResultArr, addr_32_bit addr, char operation);
+void cachingByAddrAndRandomMemContent(Cache *cache, CompressionResult *compResultArr, addr_32_bit addr, char operation, FILE *csv);
 
 void printSimResult(const char *filename);
 
 void processTraceFile(Cache *cache, const char *filename, CompressionResult *compResult);
 
 ReplacementPolicy chooseReplacementPolicy();
+
+char *processTraceFileName(const char *filename);
+
+char *generateOutputInfo(OutputInfo info);
 
 // void splitTraceFile(const char *inputFilename);
 
