@@ -10,6 +10,7 @@ Usage:
   - ./cache
   - choose a trace file from testTraces folder (e.g. testTraces/gcc.trace)
   - choose replacement policy (RANDOM, BESTFIT, LRU)
-2. check memory address range for a trace file:
+2. csv file will be automatically generated in folder testOutput
+3. check memory address range for a trace file:
   - gcc checkTrace.c -o checkTrace
   - ./checkTrace testTraces/xxx.trace
