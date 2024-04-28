@@ -525,19 +525,7 @@ void printSimResult(const char *filename){
     printf("==========================================================\n");
 }
 
-// typedef struct {
-//     unsigned long address;
-//     int ifHit;
-//     int ifEvict;
-//     unsigned int roundedCompSize;
-//     unsigned long timestamp;
-//     CompressionResult compResult;
-// }OutputInfo;
-
 char *generateOutputInfo(OutputInfo info) {
-    // Estimate the size of the string required
-    // Assuming each field would not exceed certain length, here's a safe estimate:
-    // 20 chars per long, 10 per int, and extra for commas and newline
     int size = 150;
     char *output = malloc(size * sizeof(char));
     if (output == NULL) {
@@ -570,7 +558,7 @@ void processTraceFile(Cache *cache, const char *filename, CompressionResult *com
 
     char *csvName = processTraceFileName(filename);
 
-    FILE *csv = fopen(csvName, "w");  // Open the file for writing
+    FILE *csv = fopen(csvName, "w");
     if (csv == NULL) {
         perror("Unable to open file");
         exit(EXIT_FAILURE);
@@ -684,65 +672,3 @@ char *processTraceFileName(const char *filename) {
     free(name);
     return newFilename;
 }
-
-// void splitTraceFile(const char *inputFilename) {
-//     FILE *inputFile = fopen(inputFilename, "r");
-//     if (inputFile == NULL) {
-//         perror("Failed to open input file");
-//         exit(EXIT_FAILURE);
-//     }
-
-//     int fileCount = 1;
-//     char outputFilename[256];
-//     FILE *outputFile;
-//     char line[1024];
-//     int lineCount = 0;
-
-//     sprintf(outputFilename, "testTraces/tempTests/gcc_%d.trace", fileCount);
-//     outputFile = fopen(outputFilename, "w");
-//     if (outputFile == NULL) {
-//         perror("Failed to open output file");
-//         fclose(inputFile);
-//         exit(EXIT_FAILURE);
-//     }
-
-//     while (fgets(line, sizeof(line), inputFile) != NULL) {
-//         if (lineCount == 100000) {
-//             fclose(outputFile);
-//             fileCount++;
-//             sprintf(outputFilename, "testTraces/tempTests/gcc_%d.trace", fileCount);
-//             outputFile = fopen(outputFilename, "w");
-//             if (outputFile == NULL) {
-//                 perror("Failed to open next output file");
-//                 fclose(inputFile);
-//                 exit(EXIT_FAILURE);
-//             }
-//             lineCount = 0;
-//         }
-//         fprintf(outputFile, "%s", line);
-//         lineCount++;
-//     }
-
-//     fclose(outputFile);
-//     fclose(inputFile);
-// }
-
-// void processAllFiles(Cache *cache, int fileCount, CompressionResult *compResult) {
-//     char filename[256];
-//     for (int i = 1; i <= fileCount; i++) {
-//         sprintf(filename, "testTraces/tempTests/gcc_%d.trace", i);
-//         processTraceFile(cache, filename, compResult);
-//     }
-// }
-
-// void deleteFiles(int fileCount) {
-//     char filename[256];
-//     for (int i = 1; i <= fileCount; i++) {
-//         sprintf(filename, "testTraces/tempTests/gcc_%d.trace", i);
-//         if (remove(filename) != 0) {
-//             perror("Error deleting file");
-//         } else {
-//             printf("Deleted file: %s\n", filename);
-//         }
-//     }
-// }
