@@ -2,33 +2,124 @@
  * compressedCache.c
  * 
  * Created by Penggao Li
- * Last modified: 04/27/2024
+ * Last modified: 04/29/2024
  */
 
 #include "compressedCache.h"
 
+
 /* =====================================================================================
  * 
- *                           Cache structure function
+ *                           Cache init/free functions
  *  
  * =====================================================================================
  */
 
-// Extract tag, index, and offset from 32-bit address
-AddressParts extractAddressParts(addr_32_bit address) {
-    AddressParts parts;
-    parts.offset = address & 0x1F;
-    parts.index = (address >> 5) & 0x1FF;
-    parts.tag = address >> 14;
-    return parts;
+void initializeCacheLine(CompressedCacheLine *line, addr_32_bit tag, CompressionResult compResult) {
+    // printf("\nInitializing cacheline...\n");
+    line->tag = tag;
+    line->valid = 1;
+    line->dirty = 0;
+    line->compResult = compResult;
+    line->roundedCompSize = (compResult.compSize + 3) & ~3;
+    line->timestamp = 0;
+    // printf("\nInitialized cacheline\n");
 }
 
 void initializeCacheSet(CacheSet *set) {
     // printf("\nInitializing cacheset...\n");
-    set->lines = NULL;  // Initially, no lines are allocated
+    set->lines = NULL;
     set->numberOfLines = 0;
-    set->remainingSize = 64;  // Start with the full set size available
+    set->remainingSize = 64;
     // printf("\nInitialize cacheset complete\n");
+}
+
+void freeCacheSet(CacheSet *set) {
+    // printf("\nFreeing cacheset...\n");
+    if (set->lines != NULL) {
+        free(set->lines);  // Free the lines
+        set->lines = NULL;
+    }
+    set->numberOfLines = 0;
+    set->remainingSize = LINE_SIZE * SET_ASSOCIATIVITY;
+    // printf("\nFreed cacheset\n");
+}
+
+void initializeCache(Cache *cache) {
+    // printf("\nInitializing cache...\n");
+    for (int i = 0; i < NUMBER_OF_SETS; i++) {
+        initializeCacheSet(&(cache->sets[i]));
+    }
+    // printf("\nInitialize cache complete\n");
+}
+
+void freeCache(Cache *cache) {
+    // printf("\nFreeing cache...\n");
+    for (int i = 0; i < NUMBER_OF_SETS; i++) {
+        freeCacheSet(&(cache->sets[i]));
+    }
+    // printf("\nFreed cache\n");
+}
+
+
+/* =====================================================================================
+ * 
+ *                           Cache accessing functions
+ *  
+ * =====================================================================================
+ */
+
+int addLineToCacheSet(CacheSet *set, CompressedCacheLine *line) {
+    // printf("\nAdding new line to cacheset...\n");
+    if (set->remainingSize >= line->roundedCompSize) {
+        // Ensure enough space
+        set->lines = realloc(set->lines, (set->numberOfLines + 1) * sizeof(CompressedCacheLine));
+        if (set->lines == NULL) {
+            return -1; // Memory allocation failed
+        }
+        set->lines[set->numberOfLines] = *line; // Copy the line into the set
+        set->numberOfLines++;
+        set->remainingSize -= line->roundedCompSize; // Decrease remaining size
+        // printf("\nNew line added.\n");
+        return 0; // Success
+    }
+    return -1; // Not enough space
+}
+
+bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
+
+    if(addLineToCacheSet(set, line) == -1){
+
+        info->ifEvict = 1;
+
+        switch(RP){
+            case RANDOM:
+            randomEvict(set, line, info, csv);
+            break;
+            case BESTFIT:
+            bestfitEvict(set, line, info, csv);
+            break;
+            case LRU:
+            LRUEvict(set, line, info, csv);
+            break;
+            default:
+            randomEvict(set, line, info, csv);
+            break;
+        }
+        if(addLineToCacheSet(set, line) == 0){
+
+            info->ifEvict = 0;
+
+            return true;
+        }else{
+            perror("ERROR adding new line!!!");
+            return false;
+        }
+    }
+
+    info->ifEvict = 0;
+
+    return true;
 }
 
 void removeLineFromCacheSet(CacheSet *set, addr_32_bit tag) {
@@ -96,44 +187,104 @@ void removeLineFromCacheSetByTime(CacheSet *set, unsigned long timestamp, Output
     // printf("\nTry to removed a line by size BUT NOT FOUND!!!\n");
 }
 
-bool randomEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
+bool ifHit(Cache *cache, addr_32_bit addr, OutputInfo *info){
 
-    if (set->numberOfLines == 0) {
-        perror("ERROR calling random!!!");
+    AddressParts parts = extractAddressParts(addr);
+    // printf("Address: 0x%X\nTag: 0x%X\nIndex: %u\nOffset: %u\n",
+        //    addr, parts.tag, parts.index, parts.offset);
+
+    CacheSet set = cache->sets[parts.index];
+
+    bool flag = false;
+
+    if(set.lines == NULL || set.numberOfLines == 0){
         return false;
     }
 
-    OutputInfo evictInfo;
-    evictInfo.address = info->address;
-    evictInfo.compResult = info->compResult;
-    evictInfo.ifEvict = info->ifEvict;
-    evictInfo.ifHit =info->ifHit;
-    evictInfo.roundedCompSize = info->roundedCompSize;
-    evictInfo.timestamp = info->timestamp;
+    for(int i = 0; i < set.numberOfLines; i++){
+        if(set.lines[i].tag == parts.tag){
 
-    int evictIndex = 0;
-    srand(time(0) + rand());
+            info->compResult = set.lines[i].compResult;
+            info->ifEvict = 0;
+            info->ifHit = 1;
+            info->roundedCompSize = set.lines[i].roundedCompSize;
+            info->timestamp = set.lines[i].timestamp;
 
+            flag = true;
+            set.lines[i].timestamp = 0;
+        }else{
+            set.lines[i].timestamp++;
+        }
+    }
+    return flag;
+}
+
+void cachingByAddrAndRandomMemContent(Cache *cache, CompressionResult *compResultArr, addr_32_bit addr, char operation, FILE *csv){
+
+    OutputInfo info;
+    info.address = addr;
     char *outputInfo = NULL;
 
-    while (set->remainingSize < line->roundedCompSize)
-    {
-        evictIndex = rand() % set->numberOfLines;
-        // printf("\nRANDOM: evict %d\n", evictIndex);
+    if(ifHit(cache, addr, &info)){
 
-        evictInfo.compResult = set->lines[evictIndex].compResult;
-        evictInfo.roundedCompSize = set->lines[evictIndex].roundedCompSize;
-        evictInfo.timestamp = set->lines[evictIndex].timestamp;
+        if(operation == 'l'){
+            loadHitCount++;
+        }else if(operation == 's'){
+            storeHitCount++;
+        }
 
-        outputInfo = generateOutputInfo(evictInfo);
+        outputInfo = generateOutputInfo(info);
         fprintf(csv, "%s", outputInfo);
         free(outputInfo);
         outputInfo = NULL;
 
-        removeLineFromCacheSet(set, set->lines[evictIndex].tag);
+        // printf("\n[HIT]!!!!!\n");
+        return;
     }
 
-    return true;
+    info.ifHit = 0;
+
+    AddressParts parts = extractAddressParts(addr);
+    // printf("Address: 0x%X\nTag: 0x%X\nIndex: %u\nOffset: %u\n",
+    //        addr, parts.tag, parts.index, parts.offset);
+
+    int randomNum = generateRandom(5);
+    CompressionResult compResult = compResultArr[randomNum];
+
+    info.compResult = compResult;
+    
+    CompressedCacheLine *newLine = (CompressedCacheLine *)malloc(sizeof(CompressedCacheLine));
+    initializeCacheLine(newLine, parts.tag, compResult);
+
+    info.roundedCompSize = newLine->roundedCompSize;
+    info.timestamp = 0;
+    
+    addLineToCacheSetWithRP(&((*cache).sets[parts.index]), newLine, &info, csv);
+
+    outputInfo = generateOutputInfo(info);
+    fprintf(csv, "%s", outputInfo);
+    free(outputInfo);
+    outputInfo = NULL;
+
+    // printCacheLineInfo((*cache).sets[parts.index].lines);
+    // printf("\n-- [Cacheset left: %d, num: %d] --\n\n", (*cache).sets[parts.index].remainingSize, (*cache).sets[parts.index].numberOfLines);
+}
+
+
+/* =====================================================================================
+ * 
+ *                           Cache util functions
+ *  
+ * =====================================================================================
+ */
+
+// Extract tag, index, and offset from 32-bit address
+AddressParts extractAddressParts(addr_32_bit address) {
+    AddressParts parts;
+    parts.offset = address & 0x1F;
+    parts.index = (address >> 5) & 0x1FF;
+    parts.tag = address >> 14;
+    return parts;
 }
 
 void dfs(unsigned int* nums, int size, int goal, int start, int sum, double evictedIndex) {
@@ -195,6 +346,137 @@ void doubleToIntegerArray(double value, int **array, int *size) {
     }
 }
 
+// Descending
+void bubbleSort(unsigned long arr[], int n) {
+    int i, j;
+    unsigned long temp;
+    for (i = 0; i < n - 1; i++) {
+        // Last i elements are already in place
+        for (j = 0; j < n - i - 1; j++) {
+            if (arr[j] < arr[j + 1]) {
+                temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+        }
+    }
+}
+
+int generateRandom(int range){
+    srand(time(0) + rand());
+    return rand() % range;
+}
+
+void printCacheLineInfo(CompressedCacheLine *line) {
+    printf("\n================================================");
+    printf("\nCache Line Information:\n");
+    if(line == NULL){
+        printf("\nEmpty line!!!\n");
+        return;
+    }
+    printf("Tag: 0x%X\n", line->tag);
+    printf("Valid: %s\n", line->valid ? "Yes" : "No");
+    printf("Dirty: %s\n", line->dirty ? "Yes" : "No");
+    printf("Rounded Compressed Size: %u bytes\n", line->roundedCompSize);
+    printf("Compression Results:\n");
+    printf("  - isZero: %u\n", line->compResult.isZero);
+    printf("  - isSame: %u\n", line->compResult.isSame);
+    printf("  - Comp Size: %u\n", line->compResult.compSize);
+    printf("  - K: %u\n", line->compResult.K);
+    printf("  - BaseNum: %u\n", line->compResult.BaseNum);
+    printf("Timestamp: %ld\n", line->timestamp);
+    printf("================================================\n");
+}
+
+void printSimResult(const char *filename){
+    double loadHitRate = ((double)loadHitCount)/((double)loadCount);
+    double storeHitRate = ((double)storeHitCount)/((double)storeCount);
+    double totalHitRate = ((double)(loadHitCount + storeHitCount))/((double)instructionCount);
+    printf("\n\n==========================================================\n");
+    printf("File: %s\n", filename);
+    printf("Instructions: %ld\n", instructionCount);
+    printf("        Load: %ld\n", loadCount);
+    printf("       Store: %ld\n", storeCount);
+    printf("----------------------------------------------------------\n");
+    printf(" loadHitRate: %f\n", loadHitRate);
+    printf("StoreHitRate: %f\n", storeHitRate);
+    printf("TotalHitRate: %f\n", totalHitRate);
+    printf("==========================================================\n");
+}
+
+
+/* =====================================================================================
+ * 
+ *                           Cache replacement functions
+ *  
+ * =====================================================================================
+ */
+
+ReplacementPolicy chooseReplacementPolicy() {
+    int choice;
+    printf("\nSelect a replacement policy:\n");
+    printf("1. RANDOM\n");
+    printf("2. BESTFIT\n");
+    printf("3. LRU\n");
+    printf("Enter your choice (1-3): ");
+    scanf("%d", &choice);
+
+    switch (choice) {
+        case 1:
+        printf("Using replacement policy: RANDOM\n");
+        return RANDOM;
+        case 2:
+        printf("Using replacement policy: BESTFIT\n");
+        return BESTFIT;
+        case 3:
+        printf("Using replacement policy: LRU\n");
+        return LRU;
+        default:
+            printf("Invalid choice, defaulting to LRU.\n");
+            return LRU;
+    }
+}
+
+bool randomEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
+
+    if (set->numberOfLines == 0) {
+        perror("ERROR calling random!!!");
+        return false;
+    }
+
+    OutputInfo evictInfo;
+    evictInfo.address = info->address;
+    evictInfo.compResult = info->compResult;
+    evictInfo.ifEvict = info->ifEvict;
+    evictInfo.ifHit =info->ifHit;
+    evictInfo.roundedCompSize = info->roundedCompSize;
+    evictInfo.timestamp = info->timestamp;
+
+    int evictIndex = 0;
+    srand(time(0) + rand());
+
+    char *outputInfo = NULL;
+
+    while (set->remainingSize < line->roundedCompSize)
+    {
+        evictIndex = rand() % set->numberOfLines;
+        // printf("\nRANDOM: evict %d\n", evictIndex);
+
+        evictInfo.compResult = set->lines[evictIndex].compResult;
+        evictInfo.roundedCompSize = set->lines[evictIndex].roundedCompSize;
+        evictInfo.timestamp = set->lines[evictIndex].timestamp;
+
+        outputInfo = generateOutputInfo(evictInfo);
+        fprintf(csv, "%s", outputInfo);
+        free(outputInfo);
+        outputInfo = NULL;
+
+        removeLineFromCacheSet(set, set->lines[evictIndex].tag);
+    }
+
+    return true;
+}
+
 bool bestfitEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
 
     if (set->numberOfLines == 0) {
@@ -244,23 +526,6 @@ bool bestfitEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FI
     return true;
 }
 
-// Descending
-void bubbleSort(unsigned long arr[], int n) {
-    int i, j;
-    unsigned long temp;
-    for (i = 0; i < n - 1; i++) {
-        // Last i elements are already in place
-        for (j = 0; j < n - i - 1; j++) {
-            if (arr[j] < arr[j + 1]) {
-                temp = arr[j];
-                arr[j] = arr[j + 1];
-                arr[j + 1] = temp;
-            }
-        }
-    }
-}
-
-
 bool LRUEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
 
     if (set->numberOfLines == 0) {
@@ -309,221 +574,13 @@ bool LRUEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *
     return true;
 }
 
-int addLineToCacheSet(CacheSet *set, CompressedCacheLine *line) {
-    // printf("\nAdding new line to cacheset...\n");
-    if (set->remainingSize >= line->roundedCompSize) {
-        // Ensure enough space
-        set->lines = realloc(set->lines, (set->numberOfLines + 1) * sizeof(CompressedCacheLine));
-        if (set->lines == NULL) {
-            return -1; // Memory allocation failed
-        }
-        set->lines[set->numberOfLines] = *line; // Copy the line into the set
-        set->numberOfLines++;
-        set->remainingSize -= line->roundedCompSize; // Decrease remaining size
-        // printf("\nNew line added.\n");
-        return 0; // Success
-    }
-    return -1; // Not enough space
-}
 
-bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
-
-    if(addLineToCacheSet(set, line) == -1){
-
-        info->ifEvict = 1;
-
-        switch(RP){
-            case RANDOM:
-            randomEvict(set, line, info, csv);
-            break;
-            case BESTFIT:
-            bestfitEvict(set, line, info, csv);
-            break;
-            case LRU:
-            LRUEvict(set, line, info, csv);
-            break;
-            default:
-            randomEvict(set, line, info, csv);
-            break;
-        }
-        if(addLineToCacheSet(set, line) == 0){
-
-            info->ifEvict = 0;
-
-            return true;
-        }else{
-            perror("ERROR adding new line!!!");
-            return false;
-        }
-    }
-
-    info->ifEvict = 0;
-
-    return true;
-}
-
-void initializeCache(Cache *cache) {
-    // printf("\nInitializing cache...\n");
-    for (int i = 0; i < NUMBER_OF_SETS; i++) {
-        initializeCacheSet(&(cache->sets[i]));
-    }
-    // printf("\nInitialize cache complete\n");
-}
-
-void freeCacheSet(CacheSet *set) {
-    // printf("\nFreeing cacheset...\n");
-    if (set->lines != NULL) {
-        free(set->lines);  // Free the lines
-        set->lines = NULL;
-    }
-    set->numberOfLines = 0;
-    set->remainingSize = LINE_SIZE * SET_ASSOCIATIVITY;  // Reset the remaining size
-    // printf("\nFreed cacheset\n");
-}
-
-void freeCache(Cache *cache) {
-    // printf("\nFreeing cache...\n");
-    for (int i = 0; i < NUMBER_OF_SETS; i++) {
-        freeCacheSet(&(cache->sets[i]));
-    }
-    // printf("\nFreed cache\n");
-}
-
-void initializeCacheLine(CompressedCacheLine *line, addr_32_bit tag, CompressionResult compResult) {
-    // printf("\nInitializing cacheline...\n");
-    line->tag = tag;
-    line->valid = 1;
-    line->dirty = 0;
-    line->compResult = compResult;
-    line->roundedCompSize = (compResult.compSize + 3) & ~3;
-    line->timestamp = 0;
-    // printf("\nInitialized cacheline\n");
-}
-
-void printCacheLineInfo(CompressedCacheLine *line) {
-    printf("\n================================================");
-    printf("\nCache Line Information:\n");
-    if(line == NULL){
-        printf("\nEmpty line!!!\n");
-        return;
-    }
-    printf("Tag: 0x%X\n", line->tag);
-    printf("Valid: %s\n", line->valid ? "Yes" : "No");
-    printf("Dirty: %s\n", line->dirty ? "Yes" : "No");
-    printf("Rounded Compressed Size: %u bytes\n", line->roundedCompSize);
-    printf("Compression Results:\n");
-    printf("  - isZero: %u\n", line->compResult.isZero);
-    printf("  - isSame: %u\n", line->compResult.isSame);
-    printf("  - Comp Size: %u\n", line->compResult.compSize);
-    printf("  - K: %u\n", line->compResult.K);
-    printf("  - BaseNum: %u\n", line->compResult.BaseNum);
-    printf("Timestamp: %ld\n", line->timestamp);
-    printf("================================================\n");
-}
-
-bool ifHit(Cache *cache, addr_32_bit addr, OutputInfo *info){
-
-    AddressParts parts = extractAddressParts(addr);
-    // printf("Address: 0x%X\nTag: 0x%X\nIndex: %u\nOffset: %u\n",
-        //    addr, parts.tag, parts.index, parts.offset);
-
-    CacheSet set = cache->sets[parts.index];
-
-    bool flag = false;
-
-    if(set.lines == NULL || set.numberOfLines == 0){
-        return false;
-    }
-
-    for(int i = 0; i < set.numberOfLines; i++){
-        if(set.lines[i].tag == parts.tag){
-
-            info->compResult = set.lines[i].compResult;
-            info->ifEvict = 0;
-            info->ifHit = 1;
-            info->roundedCompSize = set.lines[i].roundedCompSize;
-            info->timestamp = set.lines[i].timestamp;
-
-            flag = true;
-            set.lines[i].timestamp = 0;
-        }else{
-            set.lines[i].timestamp++;
-        }
-    }
-    return flag;
-}
-
-int generateRandom(int range){
-    srand(time(0) + rand());
-    return rand() % range;
-}
-
-void cachingByAddrAndRandomMemContent(Cache *cache, CompressionResult *compResultArr, addr_32_bit addr, char operation, FILE *csv){
-
-    OutputInfo info;
-    info.address = addr;
-    char *outputInfo = NULL;
-
-    if(ifHit(cache, addr, &info)){
-
-        if(operation == 'l'){
-            loadHitCount++;
-        }else if(operation == 's'){
-            storeHitCount++;
-        }
-
-        outputInfo = generateOutputInfo(info);
-        fprintf(csv, "%s", outputInfo);
-        free(outputInfo);
-        outputInfo = NULL;
-
-        // printf("\n[HIT]!!!!!\n");
-        return;
-    }
-
-    info.ifHit = 0;
-
-    AddressParts parts = extractAddressParts(addr);
-    // printf("Address: 0x%X\nTag: 0x%X\nIndex: %u\nOffset: %u\n",
-    //        addr, parts.tag, parts.index, parts.offset);
-
-    int randomNum = generateRandom(5);
-    CompressionResult compResult = compResultArr[randomNum];
-
-    info.compResult = compResult;
-    
-    CompressedCacheLine *newLine = (CompressedCacheLine *)malloc(sizeof(CompressedCacheLine));
-    initializeCacheLine(newLine, parts.tag, compResult);
-
-    info.roundedCompSize = newLine->roundedCompSize;
-    info.timestamp = 0;
-    
-    addLineToCacheSetWithRP(&((*cache).sets[parts.index]), newLine, &info, csv);
-
-    outputInfo = generateOutputInfo(info);
-    fprintf(csv, "%s", outputInfo);
-    free(outputInfo);
-    outputInfo = NULL;
-
-    // printCacheLineInfo((*cache).sets[parts.index].lines);
-    // printf("\n-- [Cacheset left: %d, num: %d] --\n\n", (*cache).sets[parts.index].remainingSize, (*cache).sets[parts.index].numberOfLines);
-}
-
-void printSimResult(const char *filename){
-    double loadHitRate = ((double)loadHitCount)/((double)loadCount);
-    double storeHitRate = ((double)storeHitCount)/((double)storeCount);
-    double totalHitRate = ((double)(loadHitCount + storeHitCount))/((double)instructionCount);
-    printf("\n\n==========================================================\n");
-    printf("File: %s\n", filename);
-    printf("Instructions: %ld\n", instructionCount);
-    printf("        Load: %ld\n", loadCount);
-    printf("       Store: %ld\n", storeCount);
-    printf("----------------------------------------------------------\n");
-    printf(" loadHitRate: %f\n", loadHitRate);
-    printf("StoreHitRate: %f\n", storeHitRate);
-    printf("TotalHitRate: %f\n", totalHitRate);
-    printf("==========================================================\n");
-}
+/* =====================================================================================
+ * 
+ *                           Output file processing functions
+ *  
+ * =====================================================================================
+ */
 
 char *generateOutputInfo(OutputInfo info) {
     int size = 150;
@@ -591,31 +648,6 @@ void processTraceFile(Cache *cache, const char *filename, CompressionResult *com
 
     fclose(file);
     fclose(csv);
-}
-
-ReplacementPolicy chooseReplacementPolicy() {
-    int choice;
-    printf("\nSelect a replacement policy:\n");
-    printf("1. RANDOM\n");
-    printf("2. BESTFIT\n");
-    printf("3. LRU\n");
-    printf("Enter your choice (1-3): ");
-    scanf("%d", &choice);
-
-    switch (choice) {
-        case 1:
-        printf("Using replacement policy: RANDOM\n");
-        return RANDOM;
-        case 2:
-        printf("Using replacement policy: BESTFIT\n");
-        return BESTFIT;
-        case 3:
-        printf("Using replacement policy: LRU\n");
-        return LRU;
-        default:
-            printf("Invalid choice, defaulting to LRU.\n");
-            return LRU;
-    }
 }
 
 char *processTraceFileName(const char *filename) {

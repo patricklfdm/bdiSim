@@ -2,7 +2,7 @@
  * compressedCache.h
  * 
  * Created by Penggao Li
- * Last modified: 04/27/2024
+ * Last modified: 04/29/2024
  */
 
 #include <stdio.h>
@@ -20,7 +20,7 @@
 
 /* =====================================================================================
  * 
- *                               Global variables
+ *                               Macros values
  *  
  * =====================================================================================
  */
@@ -30,14 +30,6 @@
 #define SET_ASSOCIATIVITY 2
 #define NUMBER_OF_SETS (CACHE_SIZE_KB * 1024 / (LINE_SIZE * SET_ASSOCIATIVITY))
 
-extern int diff;
-extern double closest;
-
-extern long instructionCount;
-extern long loadCount;
-extern long loadHitCount;
-extern long storeCount;
-extern long storeHitCount;
 
 /* =====================================================================================
  * 
@@ -96,18 +88,53 @@ typedef struct {
     CompressionResult compResult;
 }OutputInfo;
 
-extern ReplacementPolicy RP;
 
 /* =====================================================================================
  * 
- *                           Cache structure functions
+ *                           Global variables
  *  
  * =====================================================================================
  */
 
-AddressParts extractAddressParts(addr_32_bit address);
+extern ReplacementPolicy RP;
+
+extern int diff;
+extern double closest;
+
+extern long instructionCount;
+extern long loadCount;
+extern long loadHitCount;
+extern long storeCount;
+extern long storeHitCount;
+
+/* =====================================================================================
+ * 
+ *                           Cache init/free functions
+ *  
+ * =====================================================================================
+ */
+
+void initializeCacheLine(CompressedCacheLine *line, addr_32_bit tag, CompressionResult compResult);
 
 void initializeCacheSet(CacheSet *set);
+
+void freeCacheSet(CacheSet *set);
+
+void initializeCache(Cache *cache);
+
+void freeCache(Cache *cache);
+
+
+/* =====================================================================================
+ * 
+ *                           Cache accessing functions
+ *  
+ * =====================================================================================
+ */
+
+int addLineToCacheSet(CacheSet *set, CompressedCacheLine *line);
+
+bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
 
 void removeLineFromCacheSet(CacheSet *set, addr_32_bit tag);
 
@@ -115,7 +142,19 @@ void removeLineFromCacheSetBySize(CacheSet *set, unsigned int size, OutputInfo *
 
 void removeLineFromCacheSetByTime(CacheSet *set, unsigned long timestamp, OutputInfo *evictInfo);
 
-bool randomEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
+bool ifHit(Cache *cache, addr_32_bit addr, OutputInfo *info);
+
+void cachingByAddrAndRandomMemContent(Cache *cache, CompressionResult *compResultArr, addr_32_bit addr, char operation, FILE *csv);
+
+
+/* =====================================================================================
+ * 
+ *                           Cache util functions
+ *  
+ * =====================================================================================
+ */
+
+AddressParts extractAddressParts(addr_32_bit address);
 
 void dfs(unsigned int* nums, int size, int goal, int start, int sum, double evictedIndex);
 
@@ -123,46 +162,40 @@ void minDifference(unsigned int* nums, int size, int goal);
 
 void doubleToIntegerArray(double value, int **array, int *size);
 
-bool bestfitEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
-
 void bubbleSort(unsigned long arr[], int n);
-
-bool LRUEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
-
-int addLineToCacheSet(CacheSet *set, CompressedCacheLine *line);
-
-bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
-
-void initializeCache(Cache *cache);
-
-void freeCacheSet(CacheSet *set);
-
-void freeCache(Cache *cache);
-
-void initializeCacheLine(CompressedCacheLine *line, addr_32_bit tag, CompressionResult compResult);
-
-void printCacheLineInfo(CompressedCacheLine *line);
-
-bool ifHit(Cache *cache, addr_32_bit addr, OutputInfo *info);
-
-void cachingByAddrAndMemContent(Cache *cache, const char *filename, addr_32_bit addr);
 
 int generateRandom(int range);
 
-void cachingByAddrAndRandomMemContent(Cache *cache, CompressionResult *compResultArr, addr_32_bit addr, char operation, FILE *csv);
+void printCacheLineInfo(CompressedCacheLine *line);
 
 void printSimResult(const char *filename);
 
-void processTraceFile(Cache *cache, const char *filename, CompressionResult *compResult);
+
+/* =====================================================================================
+ * 
+ *                           Cache replacement functions
+ *  
+ * =====================================================================================
+ */
 
 ReplacementPolicy chooseReplacementPolicy();
 
-char *processTraceFileName(const char *filename);
+bool randomEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
+
+bool bestfitEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
+
+bool LRUEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
+
+
+/* =====================================================================================
+ * 
+ *                           Output file processing functions
+ *  
+ * =====================================================================================
+ */
 
 char *generateOutputInfo(OutputInfo info);
 
-// void splitTraceFile(const char *inputFilename);
+void processTraceFile(Cache *cache, const char *filename, CompressionResult *compResult);
 
-// void processAllFiles(Cache *cache, int fileCount, CompressionResult *compResult);
-
-// void deleteFiles(int fileCount);
+char *processTraceFileName(const char *filename);

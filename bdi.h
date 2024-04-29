@@ -41,11 +41,6 @@ typedef struct {
     unsigned BaseNum; 
 }CompressionResult;
 
-// typedef struct{
-//     CompressionResult result;
-//     char *compressedBuffer;
-// }CompressedData;
-
 unsigned long long my_llabs(long long x);
 
 unsigned my_abs(int x);
