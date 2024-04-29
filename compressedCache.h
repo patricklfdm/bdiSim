@@ -30,6 +30,8 @@
 #define SET_ASSOCIATIVITY 2
 #define NUMBER_OF_SETS (CACHE_SIZE_KB * 1024 / (LINE_SIZE * SET_ASSOCIATIVITY))
 
+#define rrvp_max 8
+
 extern int diff;
 extern double closest;
 
@@ -55,12 +57,16 @@ typedef struct {
     unsigned int roundedCompSize;  // Rounded size to multiples of 4 bytes for storage
     CompressionResult compResult;
     unsigned long timestamp;
+    unsigned int rrvp;            // Value used for RRIP 
 } CompressedCacheLine;
 
 typedef struct {
     CompressedCacheLine *lines;    // Dynamically allocated array of compressed lines
     unsigned int numberOfLines;    // Number of compressed lines in this set
     unsigned int remainingSize;    // Remaining size in bytes in this set (64 bytes/set)
+    unsigned int CAMP_weight_table[8]; //one slot for every compression ratio (4byte = 0, 8byte = 1, etc)
+    unsigned int CAMP_history_buffer[16];
+    unsigned int CAMP_hb_count;
 } CacheSet;
 
 typedef struct {
@@ -78,7 +84,8 @@ typedef struct {
 typedef enum {
     RANDOM,
     BESTFIT,
-    LRU
+    LRU,
+    CAMP
 }ReplacementPolicy;
 
 typedef struct {
@@ -120,6 +127,8 @@ void bubbleSort(unsigned long arr[], int n);
 
 bool LRUEvict(CacheSet *set, CompressedCacheLine *line);
 
+bool CAMPEvict(CacheSet *set, CompressedCacheLine *line);
+
 int addLineToCacheSet(CacheSet *set, CompressedCacheLine *line);
 
 bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line);
@@ -153,3 +162,5 @@ ReplacementPolicy chooseReplacementPolicy();
 // void processAllFiles(Cache *cache, int fileCount, CompressionResult *compResult);
 
 // void deleteFiles(int fileCount);
+
+void updateCamp(CacheSet *set, int size);

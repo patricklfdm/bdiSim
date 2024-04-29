@@ -28,6 +28,10 @@ void initializeCacheSet(CacheSet *set) {
     set->lines = NULL;  // Initially, no lines are allocated
     set->numberOfLines = 0;
     set->remainingSize = 64;  // Start with the full set size available
+    set->CAMP_hb_count = 0;
+    for(int i = 0; i < 8; i++){
+        set->CAMP_weight_table[i] = i+1;
+    }
     // printf("\nInitialize cacheset complete\n");
 }
 
@@ -248,6 +252,79 @@ bool LRUEvict(CacheSet *set, CompressedCacheLine *line){
     return true;
 }
 
+bool CAMPEvict(CacheSet *set, CompressedCacheLine *line){
+    //printf("\nCAMPEvict\n");
+    //printCacheLineInfo(line);
+    if (set->numberOfLines == 0) {
+        perror("ERROR calling random!!!");
+        return false;
+    }
+
+    while (set->remainingSize < line->roundedCompSize) {
+        int victim_idx = -1;
+        int victim_rrvp = -1;
+        int victim_mve = -1;
+        int highest_rrvp = -1;
+        if(set->numberOfLines == 0){
+            printf("Error Cache line too large!!");
+            return false;
+        }
+        //Find the victim with highest MVE
+        //printf("\nSearching set\n");
+        for(int i = 0; i < set->numberOfLines; i++){
+            //printf("\nidx: %d\n", i);
+            //printCacheLineInfo(&set->lines[i]);
+            int candidate_rrvp = set->lines[i].rrvp;
+            int candidate_compression_idx = (set->lines[i].roundedCompSize) / 4; 
+            int candidate_compression = set->CAMP_weight_table[candidate_compression_idx];
+            int candidate_MVE = candidate_rrvp / candidate_compression;
+            //printf("\nc_rrvp: %d, c_comp: %d, c_mve: %d\n",candidate_rrvp, candidate_compression, candidate_MVE);
+            if(candidate_rrvp > victim_rrvp){
+                highest_rrvp = candidate_rrvp;
+            }
+            if(candidate_MVE > victim_mve){
+                victim_idx = i;
+                victim_rrvp = candidate_rrvp;
+                victim_mve = candidate_MVE;
+            }
+        }
+        if(victim_idx == -1){
+            printf("Error: Couldn't find evict target");
+            return false;
+        }
+
+        //Reclaim the space
+        int size = set->lines[victim_idx].roundedCompSize;
+        set->remainingSize += size;
+
+        // Move the last line to the removed spot to keep array compact
+        if(victim_idx != set->numberOfLines - 1){
+            set->lines[victim_idx] = set->lines[set->numberOfLines - 1];
+        }
+        set->numberOfLines--;
+
+        //if highest_rrvp != rrvp_max, add the diff to every rrpv
+        int diff = rrvp_max - highest_rrvp;
+        if(diff < 0){
+            printf("ERROR: rrvp over max");
+            return false;
+        }
+        if(diff > 0){
+            for(int j = 0; j < set->numberOfLines; j++){
+                if(set->lines[j].rrvp + diff > rrvp_max){
+                    set->lines[j].rrvp = rrvp_max;
+                } else {
+                    set->lines[j].rrvp += diff;
+                }
+            }
+        }
+        updateCamp(set, line->roundedCompSize);
+        //printf("\nRemoved cacheline idx: %d, size: %d, MVE: %d\n", victim_idx, size, victim_mve);
+    }
+
+    return true;
+}
+
 int addLineToCacheSet(CacheSet *set, CompressedCacheLine *line) {
     // printf("\nAdding new line to cacheset...\n");
     if (set->remainingSize >= line->roundedCompSize) {
@@ -277,6 +354,9 @@ bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line){
             break;
             case LRU:
             LRUEvict(set, line);
+            break;
+            case CAMP:
+            CAMPEvict(set, line);
             break;
             default:
             randomEvict(set, line);
@@ -328,6 +408,7 @@ void initializeCacheLine(CompressedCacheLine *line, addr_32_bit tag, Compression
     line->compResult = compResult;
     line->roundedCompSize = (compResult.compSize + 3) & ~3;
     line->timestamp = 0;
+    line->rrvp = rrvp_max;
     // printf("\nInitialized cacheline\n");
 }
 
@@ -349,8 +430,32 @@ void printCacheLineInfo(CompressedCacheLine *line) {
     printf("  - K: %u\n", line->compResult.K);
     printf("  - BaseNum: %u\n", line->compResult.BaseNum);
     printf("Timestamp: %ld\n", line->timestamp);
+    printf("RRVP: %d\n", line->rrvp);
     printf("================================================\n");
 }
+
+void updateCamp(CacheSet *set, int size){
+    if(set->CAMP_hb_count == 16) {
+        printf("history full\n");
+        return;
+    }
+    set->CAMP_history_buffer[set->CAMP_hb_count] = size;
+    set->CAMP_hb_count += 1;
+    if(set->CAMP_hb_count == 16){
+        //reset weight table
+        for(int j = 0; j < 8; j++){
+            set->CAMP_weight_table[j] = 1;
+        }
+        for(int i = 0; i < 16; i++){
+            if(set->CAMP_weight_table[set->CAMP_history_buffer[i]] < 8){
+                set->CAMP_weight_table[set->CAMP_history_buffer[i]] += 1;
+            }
+        }
+        set->CAMP_hb_count = 0;
+    }
+    return;
+}
+
 
 bool ifHit(Cache *cache, addr_32_bit addr){
 
@@ -370,6 +475,8 @@ bool ifHit(Cache *cache, addr_32_bit addr){
         if(set.lines[i].tag == parts.tag){
             flag = true;
             set.lines[i].timestamp = 0;
+            updateCamp(&set, set.lines[i].roundedCompSize);
+            if(set.lines[i].rrvp != 0) set.lines[i].rrvp -= 1;
         }else{
             set.lines[i].timestamp++;
         }
@@ -378,7 +485,6 @@ bool ifHit(Cache *cache, addr_32_bit addr){
 }
 
 void cachingByAddrAndMemContent(Cache *cache, const char *filename, addr_32_bit addr){
-
     if(ifHit(cache, addr)){
         // printf("\n[HIT]!!!!!\n");
         return;
@@ -490,7 +596,8 @@ ReplacementPolicy chooseReplacementPolicy() {
     printf("1. RANDOM\n");
     printf("2. BESTFIT\n");
     printf("3. LRU\n");
-    printf("Enter your choice (1-3): ");
+    printf("4. CAMP\n");
+    printf("Enter your choice (1-4): ");
     scanf("%d", &choice);
 
     switch (choice) {
@@ -503,6 +610,9 @@ ReplacementPolicy chooseReplacementPolicy() {
         case 3:
         printf("Using replacement policy: LRU\n");
         return LRU;
+        case 4:
+        printf("Using replacement policy: CAMP\n");
+        return CAMP;
         default:
             printf("Invalid choice, defaulting to LRU.\n");
             return LRU;
