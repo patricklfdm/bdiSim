@@ -2,7 +2,7 @@
  * main.c
  * 
  * Created by Penggao Li
- * Last modified: 04/27/2024
+ * Last modified: 04/29/2024
  */
 
 #include "compressedCache.h"
@@ -22,6 +22,7 @@ long loadCount = 0;
 long loadHitCount = 0;
 long storeCount = 0;
 long storeHitCount = 0;
+
 ReplacementPolicy RP = LRU;
 
 /* =====================================================================================
@@ -34,7 +35,7 @@ ReplacementPolicy RP = LRU;
 int main() {
 
     char traceName[64];
-    // const char *defaultTestTrace = "testTraces/test.trace";
+    // default test trace: "testTraces/test.trace";
 
     printf("Enter the trace file name: ");
     if (fgets(traceName, sizeof(traceName), stdin) == NULL) {
@@ -59,16 +60,15 @@ int main() {
     generateCompressedData(filename4, &compResult[3]);
     generateCompressedData(filename5, &compResult[4]);
 
-    Cache myCache;
-    initializeCache(&myCache);
+    Cache cache;
+    initializeCache(&cache);
 
     clock_t start, end;
     double cpu_time_used;
 
     start = clock();
     
-    processTraceFile(&myCache, traceName, compResult);
-    // processTraceFile(&myCache, defaultTestTrace, compResult);
+    processTraceFile(&cache, traceName, compResult);
 
     printSimResult(traceName);
 
@@ -77,7 +77,7 @@ int main() {
 
     printf("Execution time: %f seconds\n", cpu_time_used);
 
-    freeCache(&myCache);
+    freeCache(&cache);
     printf("Cache has been successfully freed.\n");
     return 0;
 }
