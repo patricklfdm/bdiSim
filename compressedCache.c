@@ -636,11 +636,14 @@ bool CAMPEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE 
         //Find the victim with highest MVE
         //printf("\nSearching set\n");
         for(int i = 0; i < set->numberOfLines; i++){
-            //printf("\nidx: %d\n", i);
+            //printf("\nidx: %d num_lines:%d\n", i, set->numberOfLines);
             //printCacheLineInfo(&set->lines[i]);
             int candidate_rrvp = set->lines[i].rrvp;
-            int candidate_compression_idx = (set->lines[i].roundedCompSize) / 4; 
+            //printf("\nc_rrvp: %d\n",candidate_rrvp);
+            int candidate_compression_idx = ((set->lines[i].roundedCompSize) / 4) -1;
+            //printf("\nc_comp_idx: %d\n",candidate_compression_idx);
             int candidate_compression = set->CAMP_weight_table[candidate_compression_idx];
+            //printf("\nc_comp: %d\n", candidate_compression);
             int candidate_MVE = candidate_rrvp / candidate_compression;
             //printf("\nc_rrvp: %d, c_comp: %d, c_mve: %d\n",candidate_rrvp, candidate_compression, candidate_MVE);
             if(candidate_rrvp > victim_rrvp){
@@ -694,7 +697,7 @@ bool CAMPEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE 
         outputInfo = NULL;
         //printf("\nRemoved cacheline idx: %d, size: %d, MVE: %d\n", victim_idx, size, victim_mve);
     }
-
+    //printf("\nCAMPEvict exit\n");
     return true;
 }
 
@@ -870,7 +873,10 @@ void CAMPWeightUpdate(Cache* cache){
                 result_array[history-1].value += 1;
             }
             //printf("result_array new value: %d\n", result_array[history].value);
+            cache->sets[j].CAMP_history_buffer[k] = 0;
+            if(cache->sets[j].CAMP_history_buffer[k] != 0) printf("%d\n",cache->sets[j].CAMP_history_buffer[k]);
         }
+        cache->sets[j].CAMP_hb_count = 0;
     }
     //printf("updated result_array\n");
     qsort(result_array, 8, sizeof(result_array[0]), cmp);
