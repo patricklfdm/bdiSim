@@ -63,6 +63,7 @@ typedef struct {
 
 typedef struct {
     CacheSet sets[NUMBER_OF_SETS];
+    unsigned int CAMP_training_counter;
 } Cache;
 
 
@@ -95,6 +96,10 @@ typedef struct {
     CompressionResult compResult;
 }OutputInfo;
 
+typedef struct {
+    int value;
+    int index;
+} arrayTuple;
 
 /* =====================================================================================
  * 
@@ -153,6 +158,9 @@ bool ifHit(Cache *cache, addr_32_bit addr, OutputInfo *info);
 
 void cachingByAddrAndRandomMemContent(Cache *cache, CompressionResult *compResultArr, addr_32_bit addr, char operation, FILE *csv);
 
+void updateCamp(CacheSet *set, int size);
+
+void CAMPWeightUpdate(Cache* cache);
 
 /* =====================================================================================
  * 
@@ -170,6 +178,8 @@ void minDifference(unsigned int* nums, int size, int goal);
 void doubleToIntegerArray(double value, int **array, int *size);
 
 void bubbleSort(unsigned long arr[], int n);
+
+int cmp(const void *a, const void *b);
 
 int generateRandom(int range);
 
@@ -192,6 +202,8 @@ bool randomEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FIL
 bool bestfitEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
 
 bool LRUEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
+
+bool CAMPEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv);
 
 
 /* =====================================================================================

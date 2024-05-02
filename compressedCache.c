@@ -23,6 +23,7 @@ void initializeCacheLine(CompressedCacheLine *line, addr_32_bit tag, Compression
     line->compResult = compResult;
     line->roundedCompSize = (compResult.compSize + 3) & ~3;
     line->timestamp = 0;
+    line->rrvp = rrvp_max;
     // printf("\nInitialized cacheline\n");
 }
 
@@ -31,6 +32,13 @@ void initializeCacheSet(CacheSet *set) {
     set->lines = NULL;
     set->numberOfLines = 0;
     set->remainingSize = 64;
+    set->CAMP_hb_count = 0;
+    for(int i = 0; i < 8; i++){
+        set->CAMP_weight_table[i] = i+1;
+    }
+    for(int i = 0; i < 16; i++){
+        set->CAMP_history_buffer[i] = 0;
+    }
     // printf("\nInitialize cacheset complete\n");
 }
 
@@ -42,15 +50,17 @@ void freeCacheSet(CacheSet *set) {
     }
     set->numberOfLines = 0;
     set->remainingSize = LINE_SIZE * SET_ASSOCIATIVITY;
+    set->CAMP_hb_count = 0;
     // printf("\nFreed cacheset\n");
 }
 
 void initializeCache(Cache *cache) {
-    // printf("\nInitializing cache...\n");
+    //printf("\nInitializing cache...\n");
     for (int i = 0; i < NUMBER_OF_SETS; i++) {
         initializeCacheSet(&(cache->sets[i]));
     }
-    // printf("\nInitialize cache complete\n");
+    cache->CAMP_training_counter = 160;
+    //printf("\nInitialize cache complete\n");
 }
 
 void freeCache(Cache *cache) {
@@ -101,6 +111,9 @@ bool addLineToCacheSetWithRP(CacheSet *set, CompressedCacheLine *line, OutputInf
             break;
             case LRU:
             LRUEvict(set, line, info, csv);
+            break;
+            case CAMP:
+            CAMPEvict(set, line, info, csv);
             break;
             default:
             randomEvict(set, line, info, csv);
@@ -212,6 +225,8 @@ bool ifHit(Cache *cache, addr_32_bit addr, OutputInfo *info){
 
             flag = true;
             set.lines[i].timestamp = 0;
+            updateCamp(&(cache->sets[parts.index]), set.lines[i].roundedCompSize);
+            if(set.lines[i].rrvp != 0) set.lines[i].rrvp -= 1;
         }else{
             set.lines[i].timestamp++;
         }
@@ -270,6 +285,19 @@ void cachingByAddrAndRandomMemContent(Cache *cache, CompressionResult *compResul
     // printf("\n-- [Cacheset left: %d, num: %d] --\n\n", (*cache).sets[parts.index].remainingSize, (*cache).sets[parts.index].numberOfLines);
 }
 
+void updateCamp(CacheSet *set, int size){
+    if(set->CAMP_hb_count == 16) {
+        printf("history full\n");
+        return;
+    }
+    int setCount = set->CAMP_hb_count;
+    set->CAMP_history_buffer[setCount] = size;
+    set->CAMP_hb_count = setCount + 1;
+    if(set->CAMP_hb_count == 16){
+        set->CAMP_hb_count = 0;
+    }
+    return;
+}
 
 /* =====================================================================================
  * 
@@ -404,7 +432,6 @@ void printSimResult(const char *filename){
     printf("TotalHitRate: %f\n", totalHitRate);
     printf("==========================================================\n");
 }
-
 
 /* =====================================================================================
  * 
@@ -579,113 +606,9 @@ bool LRUEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *
     return true;
 }
 
-
-/* =====================================================================================
- * 
- *                           Output file processing functions
- *  
- * =====================================================================================
- */
-
-char *generateOutputInfo(OutputInfo info) {
-    int size = 150;
-    char *output = malloc(size * sizeof(char));
-    if (output == NULL) {
-        perror("Failed to allocate memory");
-        exit(EXIT_FAILURE);
-    }
-
-    // Format the output string
-    snprintf(output, size, "%lx,%d,%d,%u,%lu,%u,%u,%u,%u,%u\n",
-             info.address,
-             info.ifHit,
-             info.ifEvict,
-             info.roundedCompSize,
-             info.timestamp,
-             info.compResult.isZero,
-             info.compResult.isSame,
-             info.compResult.compSize,
-             info.compResult.K,
-             info.compResult.BaseNum);
-
-    return output;
-}
-
-
-/* =====================================================================================
- * 
- *                           Cache replacement functions
- *  
- * =====================================================================================
- */
-
-ReplacementPolicy chooseReplacementPolicy() {
-    int choice;
-    printf("\nSelect a replacement policy:\n");
-    printf("1. RANDOM\n");
-    printf("2. BESTFIT\n");
-    printf("3. LRU\n");
-    printf("Enter your choice (1-3): ");
-    scanf("%d", &choice);
-
-    switch (choice) {
-        case 1:
-        printf("Using replacement policy: RANDOM\n");
-        return RANDOM;
-        case 2:
-        printf("Using replacement policy: BESTFIT\n");
-        return BESTFIT;
-        case 3:
-        printf("Using replacement policy: LRU\n");
-        return LRU;
-        default:
-            printf("Invalid choice, defaulting to LRU.\n");
-            return LRU;
-    }
-}
-
-bool randomEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
-
-    if (set->numberOfLines == 0) {
-        perror("ERROR calling random!!!");
-        return false;
-    }
-
-    OutputInfo evictInfo;
-    evictInfo.address = info->address;
-    evictInfo.compResult = info->compResult;
-    evictInfo.ifEvict = info->ifEvict;
-    evictInfo.ifHit =info->ifHit;
-    evictInfo.roundedCompSize = info->roundedCompSize;
-    evictInfo.timestamp = info->timestamp;
-
-    int evictIndex = 0;
-    srand(time(0) + rand());
-
-    char *outputInfo = NULL;
-
-    while (set->remainingSize < line->roundedCompSize)
-    {
-        evictIndex = rand() % set->numberOfLines;
-        // printf("\nRANDOM: evict %d\n", evictIndex);
-
-        evictInfo.compResult = set->lines[evictIndex].compResult;
-        evictInfo.roundedCompSize = set->lines[evictIndex].roundedCompSize;
-        evictInfo.timestamp = set->lines[evictIndex].timestamp;
-
-        outputInfo = generateOutputInfo(evictInfo);
-        fprintf(csv, "%s", outputInfo);
-        free(outputInfo);
-        outputInfo = NULL;
-
-        removeLineFromCacheSet(set, set->lines[evictIndex].tag);
-    }
-
-    return true;
-}
-
-bool bestfitEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
-
+bool CAMPEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
+    //printf("\nCAMPEvict\n");
+    //printCacheLineInfo(line);
     if (set->numberOfLines == 0) {
         perror("ERROR calling random!!!");
         return false;
@@ -701,86 +624,79 @@ bool bestfitEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FI
 
     char *outputInfo = NULL;
 
-    unsigned int sizes[set->numberOfLines];
-    unsigned int goalSize = line->roundedCompSize - set->remainingSize;
-
-    for(int i = 0; i < set->numberOfLines; i++){
-        sizes[i] = set->lines[i].roundedCompSize;
-    }
-
-    minDifference(sizes, set->numberOfLines, goalSize);
-
-    int *intArray = NULL;
-    int arrSize = 0;
-    doubleToIntegerArray(closest, &intArray, &arrSize);
-
-    for(int i = 0; i < arrSize; i++){
-
-        removeLineFromCacheSetBySize(set, intArray[i], &evictInfo);
-        outputInfo = generateOutputInfo(evictInfo);
-        fprintf(csv, "%s", outputInfo);
-        free(outputInfo);
-        outputInfo = NULL;
-    }
-
-    diff = INT_MAX;
-    closest = 0;
-    free(intArray);
-    intArray = NULL;
-
-    // printf("\nBESTFIT remove total: %d lines\n", arrSize);
-
-    return true;
-}
-
-bool LRUEvict(CacheSet *set, CompressedCacheLine *line, OutputInfo *info, FILE *csv){
-
-    if (set->numberOfLines == 0) {
-        perror("ERROR calling random!!!");
-        return false;
-    }
-
-    OutputInfo evictInfo;
-    evictInfo.address = info->address;
-    evictInfo.compResult = info->compResult;
-    evictInfo.ifEvict = info->ifEvict;
-    evictInfo.ifHit =info->ifHit;
-    evictInfo.roundedCompSize = info->roundedCompSize;
-    evictInfo.timestamp = info->timestamp;
-
-    char *outputInfo = NULL;
-
-    int count = set->numberOfLines;
-
-    unsigned long timeArr[count];
-
-    for(int i = 0; i < count; i++){
-        timeArr[i] = set->lines[i].timestamp;
-        // printf("\ntime: %ld\n", timeArr[i]);
-    }
-
-    bubbleSort(timeArr, count);
-    int index = 0;
-
-    while (set->remainingSize < line->roundedCompSize)
-    {
-        removeLineFromCacheSetByTime(set, timeArr[index], &evictInfo);
-        index++;
-
-        outputInfo = generateOutputInfo(evictInfo);
-        fprintf(csv, "%s", outputInfo);
-        free(outputInfo);
-        outputInfo = NULL;
-
-        if(index >= count){
-            perror("ERROR in LRU!!!");
+    while (set->remainingSize < line->roundedCompSize) {
+        int victim_idx = -1;
+        int victim_rrvp = -1;
+        int victim_mve = -1;
+        int highest_rrvp = -1;
+        if(set->numberOfLines == 0){
+            printf("Error Cache line too large!!");
             return false;
         }
+        //Find the victim with highest MVE
+        //printf("\nSearching set\n");
+        for(int i = 0; i < set->numberOfLines; i++){
+            //printf("\nidx: %d\n", i);
+            //printCacheLineInfo(&set->lines[i]);
+            int candidate_rrvp = set->lines[i].rrvp;
+            int candidate_compression_idx = (set->lines[i].roundedCompSize) / 4; 
+            int candidate_compression = set->CAMP_weight_table[candidate_compression_idx];
+            int candidate_MVE = candidate_rrvp / candidate_compression;
+            //printf("\nc_rrvp: %d, c_comp: %d, c_mve: %d\n",candidate_rrvp, candidate_compression, candidate_MVE);
+            if(candidate_rrvp > victim_rrvp){
+                highest_rrvp = candidate_rrvp;
+            }
+            if(candidate_MVE > victim_mve){
+                victim_idx = i;
+                victim_rrvp = candidate_rrvp;
+                victim_mve = candidate_MVE;
+            }
+        }
+        if(victim_idx == -1){
+            printf("Error: Couldn't find evict target");
+            return false;
+        }
+
+        //Update evict info
+        evictInfo.compResult = set->lines[victim_idx].compResult;
+        evictInfo.roundedCompSize = set->lines[victim_idx].roundedCompSize;
+        evictInfo.timestamp = set->lines[victim_idx].timestamp;
+
+        //Reclaim the space
+        int size = set->lines[victim_idx].roundedCompSize;
+        set->remainingSize += size;
+
+        // Move the last line to the removed spot to keep array compact
+        if(victim_idx != set->numberOfLines - 1){
+            set->lines[victim_idx] = set->lines[set->numberOfLines - 1];
+        }
+        set->numberOfLines--;
+
+        //if highest_rrvp != rrvp_max, add the diff to every rrpv
+        int diff = rrvp_max - highest_rrvp;
+        if(diff < 0){
+            printf("ERROR: rrvp over max");
+            return false;
+        }
+        if(diff > 0){
+            for(int j = 0; j < set->numberOfLines; j++){
+                if(set->lines[j].rrvp + diff > rrvp_max){
+                    set->lines[j].rrvp = rrvp_max;
+                } else {
+                    set->lines[j].rrvp += diff;
+                }
+            }
+        }
+        updateCamp(set, line->roundedCompSize);
+        outputInfo = generateOutputInfo(evictInfo);
+        fprintf(csv, "%s", outputInfo);
+        free(outputInfo);
+        outputInfo = NULL;
+        //printf("\nRemoved cacheline idx: %d, size: %d, MVE: %d\n", victim_idx, size, victim_mve);
     }
 
     return true;
 }
-
 
 /* =====================================================================================
  * 
@@ -848,6 +764,14 @@ void processTraceFile(Cache *cache, const char *filename, CompressionResult *com
                 storeCount++;
             }
             cachingByAddrAndRandomMemContent(cache, compResult, address, operation, csv);
+            if(RP == CAMP){
+                if(cache->CAMP_training_counter == 1){
+                    CAMPWeightUpdate(cache);
+                    cache->CAMP_training_counter = 160;
+                } else {
+                    cache->CAMP_training_counter -= 1;
+                }
+            }
         } else {
             fprintf(stderr, "Error parsing line: %s", line);
         }
@@ -902,6 +826,9 @@ char *processTraceFileName(const char *filename) {
     case LRU:
         RPsuffix = "_lru";
         break;
+    case CAMP:
+        RPsuffix = "_camp";
+        break;
     default:
         RPsuffix = "_lru";
         break;
@@ -910,4 +837,54 @@ char *processTraceFileName(const char *filename) {
 
     free(name);
     return newFilename;
+}
+
+//modified https://stackoverflow.com/questions/36714030/c-sort-float-array-while-keeping-track-of-indices
+int cmp(const void *a, const void *b)
+{
+    arrayTuple *a1 = (arrayTuple *)a;
+    arrayTuple *a2 = (arrayTuple *)b;
+    if ((*a1).value > (*a2).value)
+        return -1;
+    else if ((*a1).value < (*a2).value)
+        return 1;
+    else
+        return 0;
+}
+
+void CAMPWeightUpdate(Cache* cache){
+    //printf("Entered Weight Update\n");
+    arrayTuple result_array[8];
+    for(int i = 0; i < 8; i++){
+        result_array[i].value = 0;
+        result_array[i].index = i;
+    }
+    //printf("initialized result_array\n");
+    for(int j=0; j < NUMBER_OF_SETS; j++){
+        for(int k = 0; k < 16; k++){
+            CacheSet tmpSet;
+            tmpSet = cache->sets[j];
+            int history = tmpSet.CAMP_history_buffer[k] / 4;
+            if(history > 0){
+                //printf("j: %d, k:%d, history: %d\n", j, k, history);
+                result_array[history-1].value += 1;
+            }
+            //printf("result_array new value: %d\n", result_array[history].value);
+        }
+    }
+    //printf("updated result_array\n");
+    qsort(result_array, 8, sizeof(result_array[0]), cmp);
+    //printf("sorted result_array\n");
+    int NewWeightTable[8];
+    for(int i = 0; i < 8; i++){
+        NewWeightTable[result_array[7-i].index] = i + 1;
+    }
+    //printf("new weight table formed\n");
+    for(int j = 0; j < NUMBER_OF_SETS; j++){
+        for(int k = 0; k < 8; k++){
+            cache->sets[j].CAMP_weight_table[k] = NewWeightTable[k];
+        }
+    }
+    //printf("copied new weight table over\n");
+    return;
 }
